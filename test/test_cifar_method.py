@@ -1,5 +1,4 @@
 import sys
-sys.path.append('/data/zhanglab/afeeney/ALSHNN/')
 
 import argparse
 import datetime

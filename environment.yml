@@ -1,0 +1,11 @@
+name: cnn-slide
+
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - matplotlib
+  - opencv
+  - pandas
+  - torch
+  - Pillow
