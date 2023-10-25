@@ -134,9 +134,9 @@ class ALSHConv2d(nn.Conv2d, ALSHConv):
             else:
                 AK = self.weight[AS][:, ALSHConv2d.LAS]
 
-        print(str(AS.size(0)) + '/' + str(self.weight.size(0)))
+        # print(str(AS.size(0)) + '/' + str(self.weight.size(0)))
 
-        output = nn.functional.conv2d(x,
+        output = nn.functional.conv2d(x.cuda(),
                                       AK,
                                       bias=self.bias[AS],
                                       stride=self.stride,

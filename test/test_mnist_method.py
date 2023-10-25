@@ -1,23 +1,26 @@
-import sys
-sys.path.append('/data/zhanglab/afeeney/ALSHNN/')
+# import sys
+# sys.path.append('/data/zhanglab/afeeney/ALSHNN/')
 
-import argparse
-import os
-import time
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torchvision
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torchvision.models as models
-import gc
-from PIL import ImageFile
+# import argparse
+# import os
+# import time
+# import torch
+# import torch.nn as nn
+# import torch.optim as optim
+# import torchvision
+# import torchvision.transforms as transforms
+# import torchvision.datasets as datasets
+# import torchvision.models as models
+# import gc
+# from PIL import ImageFile
 
-import conv.alsh_conv_2d as Conv
-from lsh.multi_hash_srp import MultiHash_SRP
+# import sys
+# sys.path.append("..")
 
-import time
+# import conv.alsh_conv_2d as Conv
+# from lsh.multi_hash_srp import MultiHash_SRP
+
+# import time
 
 best_prec1 = 0
 best_prec5 = 0
@@ -45,7 +48,14 @@ def replace_next_conv(model, current):
     if isinstance(model.features[current], nn.Conv2d):
         print('REPLACED REGULAR Conv2d WITH ALSHConv2d')
         model.features[current] = Conv.ALSHConv2d.build(
-            model.features[current], MultiHash_SRP, {}, 5, 3, 2**5)
+            model.features[current],
+            MultiHash_SRP, 
+            {}, 
+            K=5, 
+            L=3, # try 3 if this is too big
+            final_L=1, 
+            max_bits=2**5
+        )
     return current - 1
 
 
@@ -157,7 +167,7 @@ def main():
     model_name = 'modelsMNIST_custommodel_98.47'
     model = Model()  #torch.load('/data/zhanglab/afeeney/models/' + model_name)
     print(model)
-    model = model.cuda()
+    # model = model.cuda()
 
     criterion = nn.CrossEntropyLoss()
 
