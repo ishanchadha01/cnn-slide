@@ -136,7 +136,14 @@ class ALSHConv2d(nn.Conv2d, ALSHConv):
 
         # print(str(AS.size(0)) + '/' + str(self.weight.size(0)))
 
-        output = nn.functional.conv2d(x.cuda(),
+        # TODO: converted out of cuda
+        # output = nn.functional.conv2d(x.cuda(),
+        #                               AK,
+        #                               bias=self.bias[AS],
+        #                               stride=self.stride,
+        #                               padding=self.padding,
+        #                               dilation=self.dilation)
+        output = nn.functional.conv2d(x,
                                       AK,
                                       bias=self.bias[AS],
                                       stride=self.stride,

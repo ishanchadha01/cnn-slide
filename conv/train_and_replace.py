@@ -14,7 +14,7 @@ def train_and_replace(train_loader,
                       optimizer,
                       depth=None,
                       gap=None,
-                      device=torch.device('cuda')):
+                      device=torch.device('cpu')): #TODO: converted from cuda
     '''
     uses train and replace strategy to take an existing well-trained CNN
     and make it an ALSH CNN

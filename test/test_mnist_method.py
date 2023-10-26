@@ -1,26 +1,26 @@
-# import sys
-# sys.path.append('/data/zhanglab/afeeney/ALSHNN/')
+import sys
+sys.path.append('/data/zhanglab/afeeney/ALSHNN/')
 
-# import argparse
-# import os
-# import time
-# import torch
-# import torch.nn as nn
-# import torch.optim as optim
-# import torchvision
-# import torchvision.transforms as transforms
-# import torchvision.datasets as datasets
-# import torchvision.models as models
-# import gc
-# from PIL import ImageFile
+import argparse
+import os
+import time
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
+import torchvision.models as models
+import gc
+from PIL import ImageFile
 
-# import sys
-# sys.path.append("..")
+import sys
+sys.path.append("..")
 
-# import conv.alsh_conv_2d as Conv
-# from lsh.multi_hash_srp import MultiHash_SRP
+import conv.alsh_conv_2d as Conv
+from lsh.multi_hash_srp import MultiHash_SRP
 
-# import time
+import time
 
 best_prec1 = 0
 best_prec5 = 0
@@ -62,7 +62,7 @@ def replace_next_conv(model, current):
 def fix(m):
     if isinstance(m, Conv.ALSHConv2d):
         m.fix()
-        m.cuda()
+        # m.cuda() TODO: dont change to cuda here
 
 
 def to_cpu(m):
@@ -126,8 +126,8 @@ def main():
 
     train_sampler = None
 
-    normalize = transforms.Normalize(mean=(0.485, 0.456, 0.406),
-                                     std=(0.229, 0.224, 0.225))
+    normalize = transforms.Normalize(mean=(0.5),
+                                     std=(0.25))# change to 1x1 instead of 3x1 since mnist only has 1 channel
 
     train_transform = transforms.Compose([
         #transforms.RandomResizedCrop(28),
@@ -224,8 +224,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
     for i, (input, target) in enumerate(train_loader):
         data_time.update(time.time() - end)
 
-        input = input.cuda()
-        target = target.cuda()
+        # input = input.cuda()#TODO: changed to cpu
+        # target = target.cuda()#TODO: changed to cpu
 
         input = input.reshape(input.size(0), 1, 28, 28)
 
@@ -341,7 +341,7 @@ def accuracy(output, target, topk=(1, )):
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        correct_k = correct[:k].reshape(1,-1).view(-1).float().sum(0, keepdim=True)
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
 
