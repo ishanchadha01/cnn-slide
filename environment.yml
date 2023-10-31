@@ -7,5 +7,6 @@ dependencies:
   - matplotlib
   - opencv
   - pandas
-  - torch
+  - pytorch
   - Pillow
+  - torchvision
