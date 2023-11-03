@@ -115,10 +115,10 @@ class SketchConv2d(nn.Module):
         )  # batch x num_sketches x (in_channels * h * w) x L
         # result = None
         input_unfolded = torch.einsum(
-            "bnfe, nfs -> bnse", input_unfolded, self.type1_sketches
-        )  # batch x num_sketches x sketch_dim x L
-        input_unfolded = torch.einsum(
-            "bnse, nso -> bnoe", input_unfolded, self.type1_signed_matrices
+            "bnfe, nfs, nso -> bnoe",
+            input_unfolded,
+            self.type1_sketches,  # bnse = batch x num_sketches x sketch_dim x L
+            self.type1_signed_matrices,
         ).view(B, self.num_sketches, self.out_channels, H2, W2)
         input_unfolded = (
             torch.mean(input_unfolded, dim=1) + self.bias_tensor[None, :, None, None]

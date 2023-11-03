@@ -51,7 +51,7 @@ parser.add_argument('--noten', dest='ten', action='store_false')
 def replace_next_conv(model, current, down=True):
     '''
     go through model, starting at the current index to find the next
-    nn.Conv2d. Can go down or up from the current index. 
+    nn.Conv2d. Can go down or up from the current index.
     '''
 
     # if going down, decr will make this function return below the
@@ -218,7 +218,7 @@ def main():
 
             # reset optimizer b/c model changed
             optimizer = optim.SGD(model.parameters(), args.lr, momentum=0.9)
-        
+
         # decay learning rate slooowwly.
         adjust_learning_rate(optimizer, epoch, 90)
 
