@@ -1,15 +1,6 @@
 import torch
 import torch.nn as nn
-from conv.alsh_conv import ALSHConv
-
-
-def zero_fill_missing(x, i, dims, device):
-    r"""
-    fills channels that weren't computed with zeros.
-    """
-    t = torch.empty(dims).to(x).fill_(0)
-    t[:, i, :, :] = x[:,]
-    return t
+from conv.alsh_conv import ALSHConv, zero_fill_missing
 
 
 class ALSHConv2d(nn.Conv2d, ALSHConv):
