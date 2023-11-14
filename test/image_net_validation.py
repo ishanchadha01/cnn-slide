@@ -95,7 +95,8 @@ def main():
 	    batch_size=64, shuffle=False,
 	    num_workers=args.workers, pin_memory=False)
 
-    model = model.cuda()
+    # TODO: use cpu
+    # model = model.cuda()
 
 
     criterion = nn.CrossEntropyLoss()
