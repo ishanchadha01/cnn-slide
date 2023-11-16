@@ -86,16 +86,54 @@ def main():
 
     model.apply(set_ALSH_mode)
 
+    train_dir = os.path.join(args.data, 'train-data')
+    val_dir = os.path.join(args.data, 'val-data')
+    train_sampler = None
+
     normalize = transforms.Normalize(mean=[0.485, 0.465, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
 
+    train_transform = transforms.Compose([
+        #transforms.RandomResizedCrop(28),
+        transforms.ToTensor(),
+        normalize
+    ])
+    val_transform = transforms.Compose([
+        #transforms.Resize(32),
+        #transforms.CenterCrop(28),
+        transforms.ToTensor(),
+        normalize
+    ])
+
+    train_dataset = torchvision.datasets.MNIST(root=args.data_dir,
+                                               train=True,
+                                               download=True,
+                                               transform=train_transform)
+
+    val_dataset = torchvision.datasets.MNIST(root=args.data_dir,
+                                             train=False,
+                                             download=True,
+                                             transform=val_transform)
+
+    train_loader = torch.utils.data.DataLoader(train_dataset,
+                                               batch_size=args.batch_size,
+                                               shuffle=(train_sampler is None),
+                                               num_workers=args.workers,
+                                               pin_memory=True,
+                                               sampler=train_sampler)
+
+    val_loader = torch.utils.data.DataLoader(val_dataset,
+                                             batch_size=args.batch_size,
+                                             shuffle=False,
+                                             num_workers=args.workers,
+                                             pin_memory=False)
     model = model.cuda()
 
 
     criterion = nn.CrossEntropyLoss()
 
-    optimizer = optim.SGD(model.parameters(), args.lr, momentum=0.9)
+    optimizer = optim.SGD(model.parameters(), 0.001, momentum=0.9)
 
     end = time.time()
 
@@ -105,10 +143,18 @@ def main():
     for d in range(depth):
         replace_next_conv(model.features[current])
 
+    for epoch in range(args.epochs):
+       adjust_learning_rate(optimizer, epoch)
+       train(train_loader, model, criterion, optimizer, epoch)
+
+       prec1, prec5 = validate(val_loader, model, criterion)
+       best_prec1 = max(prec1, best_prec1)
+       best_prec5 = max(prec1, best_prec5)
+
     train_time = time.time() - end
     end = time.time()
 
-    #validate(val_loader, model, criterion)
+    validate(val_loader, model, criterion)
 
     val_time = time.time() - end
 
@@ -202,3 +248,6 @@ def validate(val_loader, model, criterion):
                         top1=top1, top5=top5))
             
     return top1.avg, top5.avg
+
+if __name__ == "__main__":
+    main()
