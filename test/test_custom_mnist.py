@@ -128,6 +128,9 @@ def main():
                                              shuffle=False,
                                              num_workers=args.workers,
                                              pin_memory=False)
+
+    
+    print("asdfasdf")
     model = model.cuda()
 
 

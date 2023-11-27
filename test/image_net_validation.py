@@ -116,13 +116,7 @@ def main():
         replace_next_conv(model.features[current])
 
 
-    #for epoch in range(args.epochs):
-    #    adjust_learning_rate(optimizer, epoch)
-    #    train(train_loader, model, criterion, optimizer, epoch)
-
-        #prec1, prec5 = validate(val_loader, model, criterion)
-        #best_prec1 = max(prec1, best_prec1)
-        #best_prec5 = max(prec1, best_prec5)
+    
 
     train_time = time.time() - end
     end = time.time()
