@@ -167,7 +167,7 @@ def main():
     model_name = 'modelsMNIST_custommodel_98.47'
     model = Model()  #torch.load('/data/zhanglab/afeeney/models/' + model_name)
     print(model)
-    # model = model.cuda()
+    model = model.cuda()
 
     criterion = nn.CrossEntropyLoss()
 
