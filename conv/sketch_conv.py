@@ -299,14 +299,19 @@ class ALSHSketchConv2d(SketchConv2d, ALSHConv):
             # if the weight matrix is (out_channels x in_channels x h x w)
             # then choosing the last active set should be over the input channels
             # (axis 1) not axis 2?
-            active_sketches = self.type1_sketches[..., AS]
-            active_signed_matrices = self.type1_signed_matrices.reshape(
-                self.num_sketches,
-                self.in_channels,
-                self.kernel_height,
-                self.kernel_width,
-                self.sketch_dim,
-            )[:, LAS, ...].flatten(1, 3)
+
+            # This seems to have worked but idk, what's below is what should actually work lmao
+            # active_sketches = self.type1_sketches[..., AS]
+            # active_signed_matrices = self.type1_signed_matrices.reshape(
+            #     self.num_sketches,
+            #     self.in_channels,
+            #     self.kernel_height,
+            #     self.kernel_width,
+            #     self.sketch_dim,
+            # )[:, LAS, ...].flatten(1, 3)
+
+            active_sketches = self.type1_sketches.reshape(self.num_sketches, self.in_channels, self.kernel_height, self.kernel_width, -1)[:, LAS, ...].flatten(1, 3)
+            active_signed_matrices = self.type1_signed_matrices[..., AS]
 
         output = self._forward_sketch_output(
             x.to(self.device)[
