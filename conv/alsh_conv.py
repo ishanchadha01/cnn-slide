@@ -1,10 +1,19 @@
 import sys
-sys.path.append('../lsh/')
+
+sys.path.append("../lsh/")
 
 import torch
 from lsh.tables_cpu import TablesCPU
 from lsh.tables_gpu import TablesGPU
-#from Conv._ext import get_active_set
+
+
+def zero_fill_missing(x, i, dims, device):
+    r"""
+    fills channels that weren't computed with zeros.
+    """
+    t = torch.empty(dims).to(x).fill_(0)
+    t[:, i, :, :] = x[:,]
+    return t
 
 
 class AverageMeter(object):
@@ -25,14 +34,28 @@ class AverageMeter(object):
 
 
 class ALSHConv:
-    def init_ALSH(self, num_tables, final_num_tables, table_size, which_hash, hash_init_params,
-                  num_hashes, dim, num_filters, device):
-        assert isinstance(device, str), 'ALSHConv, device must be a string'
-        assert device == 'cpu' or device == 'gpu', \
-            'ALSHConv, device must be a \'cpu\' or \'gpu\'.'
+    def init_ALSH(
+        self,
+        num_tables,
+        final_num_tables,
+        table_size,
+        which_hash,
+        hash_init_params,
+        num_hashes,
+        dim,
+        num_filters,
+        device,
+    ):
+        assert isinstance(device, str), "ALSHConv, device must be a string"
+        assert device in [
+            "cpu",
+            "cuda",
+            "mps",
+        ], f"ALSHConv, device must be in {['cpu', 'cuda', 'mps']}."
 
-        self.tables = TablesCPU(num_tables, table_size, which_hash,
-                                hash_init_params, num_hashes, dim)
+        self.tables = TablesCPU(
+            num_tables, table_size, which_hash, hash_init_params, num_hashes, dim
+        )
 
         self.final_num_tables = final_num_tables
 
@@ -42,8 +65,7 @@ class ALSHConv:
 
     def fill_table(self, filters):
         num = filters.size(0)
-        self.tables.insert_data(filters.view(num, -1),
-                                torch.arange(0, num).long())
+        self.tables.insert_data(filters.view(num, -1), torch.arange(0, num).long())
 
     def refill(self, active_kernels, active_set, table_indices):
         self.tables.clear_row(table_indices)
@@ -55,28 +77,23 @@ class ALSHConv:
             self.tables.trim()
 
     def most_freq(self, x, k):
-        r'''
+        r"""
         finds the k most frequently occuring values in x
-        '''
+        """
         bins = self.tables.table_size
         item_freq = torch.histc(x.cpu(), bins=bins, max=bins)
         self.bucket_stats.update(item_freq)
         return item_freq.topk(k)[1]
 
-    def get_active_set(self,
-                       input,
-                       kernel_size,
-                       stride,
-                       padding,
-                       dilation,
-                       LAS=None):
-
-        ti = self.tables.get(input,
-                             kernel_size=kernel_size,
-                             stride=stride,
-                             padding=padding,
-                             dilation=dilation,
-                             LAS=LAS)
+    def get_active_set(self, input, kernel_size, stride, padding, dilation, LAS=None):
+        ti = self.tables.get(
+            input,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            LAS=LAS,
+        )
 
         ti = ti.view(self.tables.num_tables, -1)
 

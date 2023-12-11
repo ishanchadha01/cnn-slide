@@ -11,8 +11,8 @@ import torchvision.models as models
 import gc
 from PIL import ImageFile
 
-import Conv.alsh_conv_2d as Conv
-from LSH.multi_hash_srp import MultiHash_SRP
+import conv.alsh_conv_2d as Conv
+from lsh.multi_hash_srp import MultiHash_SRP
 
 import time
 
