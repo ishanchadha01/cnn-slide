@@ -43,8 +43,8 @@ class AlshConv2d(torch.nn.Conv2d):
                  padding,
                  dilation,
                  bias,
-                 num_funcs, 
-                 num_tables, 
+                 num_funcs, # max bits, num hash funcs per table, K
+                 num_tables, # num of tables, L
                  hash_func, 
                  filters):
         super().__init__(in_channels,
@@ -54,9 +54,13 @@ class AlshConv2d(torch.nn.Conv2d):
                          padding=padding,
                          dilation=dilation,
                          bias=bias)
+        
+        # Initialize variables
+        self.num_filters = out_channels
 
         # Pre-pass: create hash tables
-        # create L hash tables
+        # create L hash tables 
+        #TODO this is initialized differently
         self.tables = num_tables * [HashTable(hash_func)]
         for table in self.tables:
             table.create_hash_functions(num_funcs)
@@ -69,6 +73,12 @@ class AlshConv2d(torch.nn.Conv2d):
             for idx, filter in enumerate(filters_flattened):
                 entry = self.hash_func(self._preprocess(filter))
                 table[entry] = idx
+
+        # Other bookkeeping
+        self.cpu()
+        self.cache = None # cache is used for modifying ALSH tables after an update
+        self.first_layer = False
+        self.last_layer = False
 
 
     def forward(self, imgs, filters, query_func):
@@ -107,4 +117,8 @@ class AlshConv2d(torch.nn.Conv2d):
 
     def _preprocess(self, filter):
         # preprocess filter before it can be passed into the hash function
+        pass
+
+
+    if __name__=='__main__':
         pass
