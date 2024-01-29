@@ -1,40 +1,87 @@
 import torch
-import torch.autograd.function as Function
+import torch.nn as nn
 
 
-#TODO: try faiss IndxLSH
+#TODO: try faiss IndxLSH for Table
 
 
-class SignedRandomProjection(Function): #TODO maybe dont implement as function so it can more easily store state
-    def __init__(self):
-        pass
+class SRPTable:
+    def __init__(self, num_hashes, output_dim):
+        """
+        num_hashes is the number of hashes to concatenate
+        2015 paper goes over this in detail, https://arxiv.org/pdf/1410.5410.pdf
+        """
+        self.bits = num_hashes
+        self.dim = output_dim
+        self.random_tensor = torch.randn(output_dim, self.bits) # (in_channels * kernel_size * kernel_size + 2, K)
+        self.normal = self.a[:-2]
+        self.bit_mask = torch.Tensor([2 ** (i) for i in torch.arange(self.bits)])
 
+    def _preprocess_rows(self, x):
+        """
+        assuming m = 2 simplifies the problem a lot. And it's not longer
+        necessary for it to be any larger than that since Q_obj doesn't
+        append 0's, it just uses a splice of self.a.
 
-class HashTable:
-    def __init__(self, hash_func):
-        self.hash_func = hash_func
-        self.hash_func_arr = []
-        self._table = {}
-        #TODO implement as just having num_funcs, hash_func, 
-        # and element wise mapping of func to each element
+        - x should be a matrix where rows are the datum to be inserted.
+        """
 
-    def create_hash_functions(self, num_funcs):
-        self.hash_func_arr = num_funcs * [self.hash_func()]
+        norm = x.norm(dim=1)  # norm of each row
+        norm /= norm.max() / 0.75
+        norm.unsqueeze_(1)
+        app1 = 0.5 - (norm**2)
+        app2 = 0.5 - (norm**4)
+        return torch.cat((x, app1, app2), 1)
 
-    def apply_hash_function(self, x):
-        for func in self.hash_func_arr:
-            x = func(x)
-        return x
+    def hash_matr(self, matr):
+        """
+        Applies SRP hash to the rows a matrix.
+        """
+        # N x num_bits
+        bits = (torch.mm(matr, self.a.to(matr)) > 0).float()
+        return (bits * self.bit_mask.to(matr)).sum(1).view(-1).long()
 
-    def __setitem__(self, index, val):
-        self._table[index] = val
+    def hash_4d_tensor(self, obj, kernel_size, stride, padding, dilation, LAS=None):
+        # set normal=a[:-2] to prevent appending / avoid copying
+        normal = (
+            self.normal.transpose(0, 1)
+            .view(self.bits, -1, kernel_size, kernel_size)
+            .to(obj)
+        )
 
-    def __getitem__(self, index):
-        return self._table[index]
+        if LAS is not None:
+            normal = normal[:, LAS]
 
+        out = torch.nn.functional.conv2d(
+            obj, normal, stride=stride, padding=padding, dilation=dilation
+        )
+
+        # convert output of conv into bits
+        trs = out.view(out.size(0), self.bits, -1).transpose(1, 2)
+        bits = (trs >= 0).float()
+
+        # return bits -> integer hash
+        return (bits * self.bit_mask.to(obj)).sum(2)
+
+    def query(self, input, **kwargs):
+        """
+        applies Q to input and hashes.
+        If input object has dim == 4, kwargs should contaion stride,
+        padding, and dilation
+        """
+        assert (
+            input.dim() == 4
+        ), "MultiHash_SRP.query. Input must be dim 4 but got: " + str(input.dim())
+        return self.hash_4d_tensor(input, **kwargs)
+
+    def preprocess(self, input):
+        assert input.dim() == 2, "MultiHash_SRP.pre. Input must be dim 2."
+        return self.hash_matr(self._preprocess_rows(input))
 
 
 class AlshConv2d(torch.nn.Conv2d):
+    LAS = None # static variable to keep track of active set of prev alsh layer
+
     def __init__(self, 
                  in_channels,
                  out_channels,
@@ -43,10 +90,10 @@ class AlshConv2d(torch.nn.Conv2d):
                  padding,
                  dilation,
                  bias,
-                 num_funcs, # max bits, num hash funcs per table, K
+                 num_hashes, # num hash funcs per table, K
                  num_tables, # num of tables, L
-                 hash_func, 
-                 filters):
+                 max_bits, # max bits per hash, table size, we can have more hash funcs than max bits and mod output
+                 hash_func=SRPTable):
         super().__init__(in_channels,
                          out_channels,
                          kernel_size,
@@ -57,22 +104,13 @@ class AlshConv2d(torch.nn.Conv2d):
         
         # Initialize variables
         self.num_filters = out_channels
+        self.alsh_dim = in_channels * kernel_size * kernel_size
+        self.tables_dim = self.alsh_dim + 2 #TODO Why?
 
         # Pre-pass: create hash tables
-        # create L hash tables 
-        #TODO this is initialized differently
-        self.tables = num_tables * [HashTable(hash_func)]
-        for table in self.tables:
-            table.create_hash_functions(num_funcs)
-        
-        # transform filters into rows, assuming theyre passed in group of filters.shape[0] filters
-        filters_flattened = filters.reshape((filters.shape[0], -1, kernel_size * kernel_size))
-
-        # initialize table
-        for table in self.tables:
-            for idx, filter in enumerate(filters_flattened):
-                entry = self.hash_func(self._preprocess(filter))
-                table[entry] = idx
+        # create L hash tables
+        self.hashes = [[hash_func(num_hashes, self.alsh_dim+2)] for _ in range(num_tables)]
+        self.tables = [[[] for _ in range(max_bits)] for _ in range(num_tables)]  # tables does not contain keys, only values. TODO: is there better way to store this?
 
         # Other bookkeeping
         self.cpu()
@@ -80,44 +118,136 @@ class AlshConv2d(torch.nn.Conv2d):
         self.first_layer = False
         self.last_layer = False
 
+    def forward(self, imgs):
+        # Get last active set
+        if not self.first_layer:
+            LAS = AlshConv2d.LAS
+        else:
+            LAS = None
 
-    def forward(self, imgs, filters, query_func):
-        num_imgs, num_channels, img_height, img_width = imgs.shape
-        num_filters = filters.shape[0]
-        kernel_size = filter.shape[2]
+        # Get active set
+        AS = self.get_active_set(imgs, self.kernel_size[0], self.stride, self.padding, self.dilation, LAS)
 
-        imgs_columnized = img2col(imgs) #TODO implement img2col or modify to do without
-        filters_flattened = filters.reshape(num_filters, -1, kernel_size * kernel_size)
-        filters_to_use = [] # indices of filters to use
+        # If active set is very small then just use weight for active kernels
+        if AS.size() < 2:
+            AK = self.weight
+        else:
+            if self.first:
+                # if its the first ALSHConv2d in the network,
+                # then there is no LAS to use!
+                AK = self.weight[AS]
+            else:
+                AK = self.weight[AS][:, AlshConv2d.LAS]
 
-        #TODO does not currently work in batches!
-        # get filters that are most relevant to whichever hash the img falls into
-        for idx, table in enumerate(self.tables):
-            hash_count = torch.zeros((len(table.hash_func_arr),))
-            for col in imgs_columnized:
-                col_hash = table.apply_hash_func(col)
-                hash_count[col_hash] += 1
+        output = nn.functional.conv2d(
+            imgs.cuda(),
+            AK,
+            bias=self.bias[AS],
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+        )
             
-            hash = torch.argmax(hash_count) # most frequent hash
-            filters_for_hash = table[idx][hash]
-            filters_to_use += filters_for_hash
+        h, w = output.size()[2:]
+        if self.last:
+            out_dims = (imgs.size(0), self.out_channels, h, w)
+            return self.zero_fill_missing(output, AS, out_dims, device=self.device)
+        else:
+            AlshConv2d.LAS = AS
+            return output
 
-        filters_to_use = torch.Tensor(filters_to_use) # TODO use torch tensor for full computation
-        active_set = filters_flattened[filters_to_use] # get filters indexed by filters to use by masking
+    def fix(self):
+        num_filters = self.weight.size(0)
+        self.insert_to_tables(self.weight.view(num_filters, -1), torch.arange(0, num_filters).long())
 
-        # TODO maybe use einsum
-        # m * (k*k) x n * (h*w) = m*n*h*w
-        output = torch.einsum('mK,nhw->nmhw', active_set, imgs_columnized)
-        #TODO reshape into batched output
-        return output
-    
-    def backward(self, grad):
-        super(AlshConv2d, self).backward(grad)
-        # return grad
+    # Core functions
+    def insert_to_tables(self, keys, vals):
+        """
+        inserts a sequence of values into tables based on keys.
+        keys[i] is the key for values[i]
+        For this application, only values need to be stored in the hash table.
+        They work as references to the keys.
+        """
+        self.tables = [[[] for _ in range(self.table_size)] for _ in range(self.num_tables)]
+        rows = [
+            hash.preprocess(keys) % self.table_size for hash in self.hashes
+        ]
 
-    def _preprocess(self, filter):
-        # preprocess filter before it can be passed into the hash function
-        pass
+        # can parallelize outer loop for each table?
+
+        for table_i in torch.arange(0, self.num_tables).long():
+            for row, val in zip(rows[table_i], vals):
+                self.tables[table_i][row].append(int(val)) # in i_th table, put val at preprocessed key
+
+    def get_from_tables(self, key, **kwargs):
+        # we can have more hash funcs than max bits and mod output
+        return torch.stack([
+            hash.query(key, **kwargs) % self.max_bits for hash in self.hashes
+        ])
+
+    def get_active_set(self, input, kernel_size, stride, padding, dilation, LAS=None):
+        table_i = self.get_from_tables(
+            input,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            LAS=LAS,
+        )
+
+        table_i = table_i.view(self.num_tables, -1)
+
+        k = 5
+        top_kl = torch.zeros(table_i.size(0), k).long() # top kl divergence for most frequent element
+        for row in range(table_i.size(0)):
+            top_kl[row] = self.most_freq(table_i[row], k=k)
+
+        AS = torch.LongTensor([])
+        for i in torch.arange(0, self.tables.num_tables).long():
+            for j in top_kl[i]:
+                ids = torch.LongTensor(self.tables.tables[i][j])
+                AS = torch.cat((AS, ids)).unique(sorted=False)
+
+        return AS.sort()[0]
+
+    ## Utils
+    def most_freq(self, x, k):
+        """
+        finds the k most frequently occuring values in x
+        """
+        bins = self.table_size
+        item_freq = torch.histc(x.cpu(), bins=bins, max=bins)
+        self.bucket_stats.update(item_freq)
+        return item_freq.topk(k)[1]
+
+    def zero_fill_missing(x, i, dims, device):
+        """
+        fills channels that weren't computed with zeros.
+        """
+        t = torch.empty(dims).to(x).fill_(0)
+        t[:, i, :, :] = x[:,]
+        return t
+
+    ## Change device for tables
+    def cuda(self, device=None):
+        """
+        moves to specified GPU device. Also sets device used for hashes.
+        """
+        for t in range(len(self.hashes)):
+            self.hashes[t].a = self.hashes[t].a.cuda(device)
+            self.hashes[t].bit_mask = self.hashes[t].bit_mask.cuda(device)
+        self.device = device
+        return self._apply(lambda t: t.cuda(device))
+
+    def cpu(self):
+        """
+        moves to the CPU. Also sets device used for hashes.
+        """
+        for t in range(len(self.hashes)):
+            self.hashes[t].a = self.hashes[t].a.cpu()
+            self.hashes[t].bit_mask = self.hashes[t].bit_mask.cpu()
+        self.device = torch.device("cpu")
+        return self._apply(lambda t: t.cpu())
 
 
     if __name__=='__main__':
