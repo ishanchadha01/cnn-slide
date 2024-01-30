@@ -1,12 +1,12 @@
-from alsh_conv import AlshConv2d
 from sketch_conv import SketchConv2d
-from models import MNIST
+from models import MNIST, AlshCNN
 import torch
 from torchvision import transforms, datasets
 import torch.nn.functional as F
 import torch.optim as optim
 import argparse
 from tqdm import tqdm
+
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -17,7 +17,8 @@ if __name__=='__main__':
     args = parser.parse_args()
 
     device = torch.device("cpu")
-    model = MNIST().to(device)
+    # model = MNIST().to(device)
+    model = AlshCNN().to(device)
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
