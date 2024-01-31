@@ -33,23 +33,26 @@ class MNIST(nn.Module):
 class AlshCNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = AlshConv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=0, dilation=1, bias=True, is_first_layer=True, is_last_layer=False, num_hashes=5, num_tables=8, max_bits=16, hash_table=SRPTable)
-        self.conv2 = None # dynamically set input channels for this
+        self.conv1 = AlshConv2d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=0, dilation=1, bias=True, is_first_layer=True, is_last_layer=True, num_hashes=5, num_tables=8, max_bits=16, hash_table=SRPTable)
+        # self.conv2 = None # dynamically set input channels for this
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1)
         self.dropout1 = nn.Dropout(p=0.25)
         self.dropout2 = nn.Dropout(p=0.5)
-        self.fc1 = None # dynamically set input channels for this
+        # self.fc1 = None # dynamically set input channels for this
+        self.fc1 = nn.Linear(in_features=9216, out_features=128)
         self.fc2 = nn.Linear(in_features=128, out_features=10)
 
     def forward(self, x):
         x = self.conv1(x)
         x = F.relu(x)
-        self.conv2 = AlshConv2d(in_channels=x.size(1), out_channels=64, kernel_size=3, stride=1, padding=0, dilation=1, bias=True, is_first_layer=False, is_last_layer=False, num_hashes=5, num_tables=8, max_bits=16, hash_table=SRPTable)
+        # self.conv2 = AlshConv2d(in_channels=x.size(1), out_channels=64, kernel_size=3, stride=1, padding=0, dilation=1, bias=True, is_first_layer=False, is_last_layer=False, num_hashes=5, num_tables=8, max_bits=16, hash_table=SRPTable)
+        # self.conv2 = nn.Conv2d(in_channels=x.size(1), out_channels=64, kernel_size=3, stride=1)
         x = self.conv2(x)
         x = F.relu(x)
         x = F.max_pool2d(x, kernel_size=2)
         x = self.dropout1(x)
         x = torch.flatten(x, 1)
-        self.fc1 = nn.Linear(in_features=x.size(1), out_features=128)
+        self.fc1 = nn.Linear(in_features=9216, out_features=128)
         x = self.fc1(x)
         x = F.relu(x)
         x = self.dropout2(x)

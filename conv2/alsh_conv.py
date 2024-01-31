@@ -13,7 +13,7 @@ class SRPTable:
         """
         self.bits = num_hashes
         self.dim = output_dim
-        self.random_tensor = torch.randn(output_dim, self.bits) # (in_channels * kernel_size * kernel_size + 2, K)
+        self.random_tensor = torch.randn(self.dim, self.bits) # (in_channels * kernel_size * kernel_size + 2, K)
         self.normal = self.random_tensor[:-2]
         self.bit_mask = torch.Tensor([2 ** (i) for i in torch.arange(self.bits)])
 
@@ -41,13 +41,16 @@ class SRPTable:
         bits = (torch.mm(matr, self.random_tensor.to(matr)) > 0).float()
         return (bits * self.bit_mask.to(matr)).sum(1).view(-1).long()
 
-    def hash_4d_tensor(self, obj, kernel_size, stride, padding, dilation):
+    def hash_4d_tensor(self, obj, kernel_size, stride, padding, dilation, LAS=None):
         # set normal=a[:-2] to prevent appending / avoid copying
         normal = (
             self.normal.transpose(0, 1)
             .view(self.bits, -1, kernel_size, kernel_size)
             .to(obj)
         )
+        
+        if LAS is not None:
+            normal = normal[:, LAS]
 
         out = torch.nn.functional.conv2d(
             obj, normal, stride=stride, padding=padding, dilation=dilation
@@ -77,6 +80,7 @@ class SRPTable:
 
 
 class AlshConv2d(torch.nn.Conv2d):
+    LAS=None
 
     def __init__(self, 
                  in_channels,
@@ -90,8 +94,10 @@ class AlshConv2d(torch.nn.Conv2d):
                  is_last_layer,
                  num_hashes, # num hash funcs per table, K
                  num_tables, # num of tables, L
-                 max_bits, # max bits per hash, table size, we can have more hash funcs than max bits and mod output
+                #  final_num_tables, # max num tables at the end of computation
+                 max_bits, # max bits per hash, ie table size, we can have more hash funcs than max bits and mod output
                  hash_table=SRPTable, # table with certain type of hash func
+                 device="cpu"
                  ): 
         super().__init__(in_channels,
                          out_channels,
@@ -101,17 +107,26 @@ class AlshConv2d(torch.nn.Conv2d):
                          dilation=dilation,
                          bias=bias)
         
+        # Check device
+        assert isinstance(device, str), "ALSHConv, device must be a string"
+        assert device in [
+            "cpu",
+            "cuda",
+            "mps",
+        ], f"ALSHConv, device must be in {['cpu', 'cuda', 'mps']}."
+
         # Initialize variables
-        self.num_filters = out_channels
         self.alsh_dim = in_channels * kernel_size * kernel_size
+        self.num_filters = out_channels
         self.tables_dim = self.alsh_dim + 2 #TODO Why?
         self.num_hashes = num_hashes
         self.num_tables = num_tables
         self.max_bits = max_bits
+        # self.final_num_tables = final_num_tables
 
         # Pre-pass: create hash tables
         # create L hash tables
-        self.hashes = [hash_table(num_hashes, self.alsh_dim+2) for _ in range(num_tables)]
+        self.hashes = [hash_table(num_hashes, self.tables_dim) for _ in range(num_tables)]
         self.tables = [[[] for _ in range(max_bits)] for _ in range(num_tables)]  # tables does not contain keys, only values. TODO: is there better way to store this?
 
         # Other bookkeeping
@@ -124,14 +139,21 @@ class AlshConv2d(torch.nn.Conv2d):
 
     def forward(self, imgs):
 
+        LAS = AlshConv2d.LAS if not self.first_layer else None
+
         # Get active set
-        AS = self.get_active_set(imgs, self.kernel_size[0], self.stride, self.padding, self.dilation)
+        AS = self.get_active_set(imgs, self.kernel_size[0], self.stride, self.padding, self.dilation, LAS)
 
         # If active set is very small then just use weight for active kernels
         if AS.size(0) < 2:
             AK = self.weight
         else:
-            AK = self.weight[AS]
+            if self.first_layer:
+                # if its the first ALSHConv2d in the network,
+                # then there is no LAS to use!
+                AK = self.weight[AS]
+            else:
+                AK = self.weight[AS][:, AlshConv2d.LAS]
 
         output = nn.functional.conv2d(
             imgs,
@@ -145,8 +167,9 @@ class AlshConv2d(torch.nn.Conv2d):
         h, w = output.size()[2:]
         if self.last_layer:
             out_dims = (imgs.size(0), self.out_channels, h, w)
-            return self.zero_fill_missing(output, AS, out_dims, device=self.device)
+            return self.zero_fill_missing(output, AS, out_dims)
         else:
+            AlshConv2d.LAS = AS
             return output
 
     def fix(self):
@@ -167,7 +190,6 @@ class AlshConv2d(torch.nn.Conv2d):
         ]
 
         # can parallelize outer loop for each table?
-
         for table_i in torch.arange(0, self.num_tables).long():
             for row, val in zip(rows[table_i], vals):
                 self.tables[table_i][row].append(int(val)) # in i_th table, put val at preprocessed key
@@ -178,13 +200,14 @@ class AlshConv2d(torch.nn.Conv2d):
             hash.query(key, **kwargs) % self.max_bits for hash in self.hashes
         ])
 
-    def get_active_set(self, input, kernel_size, stride, padding, dilation):
+    def get_active_set(self, input, kernel_size, stride, padding, dilation, LAS=None):
         table_i = self.get_from_tables(
             input,
             kernel_size=kernel_size,
             stride=stride,
             padding=padding,
-            dilation=dilation
+            dilation=dilation,
+            LAS=LAS
         )
         table_i = table_i.view(self.num_tables, -1)
 
@@ -210,7 +233,7 @@ class AlshConv2d(torch.nn.Conv2d):
         # self.bucket_stats.update(item_freq)
         return item_freq.topk(k)[1]
 
-    def zero_fill_missing(x, i, dims, device):
+    def zero_fill_missing(self, x, i, dims):
         """
         fills channels that weren't computed with zeros.
         """
