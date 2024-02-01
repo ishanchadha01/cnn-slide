@@ -3,7 +3,8 @@ import torch.nn as nn
 
 
 #TODO: try faiss IndxLSH for Table
-
+#TODO: trim tables if it gets too large
+#TODO: refactor SRP table to be more understandable
 
 class SRPTable:
     def __init__(self, num_hashes, output_dim):
@@ -118,16 +119,15 @@ class AlshConv2d(torch.nn.Conv2d):
         # Initialize variables
         self.alsh_dim = in_channels * kernel_size * kernel_size
         self.num_filters = out_channels
-        self.tables_dim = self.alsh_dim + 2 #TODO Why?
+        self.tables_dim = self.alsh_dim + 2 # dimension of tables should be slightly larger than input size for good performance
         self.num_hashes = num_hashes
         self.num_tables = num_tables
         self.max_bits = max_bits
-        # self.final_num_tables = final_num_tables
 
         # Pre-pass: create hash tables
         # create L hash tables
         self.hashes = [hash_table(num_hashes, self.tables_dim) for _ in range(num_tables)]
-        self.tables = [[[] for _ in range(max_bits)] for _ in range(num_tables)]  # tables does not contain keys, only values. TODO: is there better way to store this?
+        self.tables = [[[] for _ in range(max_bits)] for _ in range(num_tables)]  # tables does not contain keys, only values
 
         # Other bookkeeping
         self.cpu()
